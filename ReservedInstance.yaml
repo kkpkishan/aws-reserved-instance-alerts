@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template to monitor expiring Reserved Instances across all regions and send notifications via SNS, triggered by EventBridge."
+
+Parameters:
+  ParentAlertStack:
+    Description: "Optional but recommended stack name of parent alert stack based on https://github.com/kkpkishan/AWS-SNS/blob/master/alert.yaml template."
+    Type: String
+    Default: ''
+
+Resources:
+  # IAM Role for Lambda
+  ReservedInstanceExpiryLambdaRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "ReservedInstanceExpiryLambdaRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess"
+        - "arn:aws:iam::aws:policy/AmazonSNSFullAccess"
+        - "arn:aws:iam::aws:policy/AWSCloudTrail_ReadOnlyAccess"
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+  # Lambda Function to Monitor Reserved Instances Across All Regions
+  ReservedInstanceExpiryLambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: "ReservedInstanceExpiryMonitor"
+      Handler: "index.lambda_handler"
+      Runtime: "python3.9"
+      Role: !GetAtt ReservedInstanceExpiryLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          from datetime import datetime, timedelta, timezone
+          import logging
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              sns_topic_arn = context.function_name
+              current_date = datetime.now(timezone.utc)
+              warning_date = current_date + timedelta(days=3)
+
+              regions = [region['RegionName'] for region in boto3.client('ec2').describe_regions()['Regions']]
+
+              logger.info(f"Checking Reserved Instances expiring before {warning_date.isoformat()} in all regions.")
+
+              expiring_ri_details = []
+
+              for region in regions:
+                  try:
+                      ec2_client = boto3.client('ec2', region_name=region)
+                      response = ec2_client.describe_reserved_instances(
+                          Filters=[{'Name': 'state', 'Values': ['active']}]
+                      )
+                      reserved_instances = response.get('ReservedInstances', [])
+
+                      for ri in reserved_instances:
+                          if ri['End'] <= warning_date:
+                              expiring_ri_details.append({
+                                  "id": ri['ReservedInstancesId'],
+                                  "expiry_date": ri['End'],
+                                  "instance_type": ri['InstanceType'],
+                                  "availability_zone": ri['AvailabilityZone'],
+                                  "instance_count": ri['InstanceCount'],
+                                  "region": region
+                              })
+
+                  except Exception as e:
+                      logger.error(f"Error checking region {region}: {str(e)}")
+
+              if expiring_ri_details:
+                  message = "Expiring Reserved Instances across regions:\n\n"
+                  for ri in expiring_ri_details:
+                      message += (
+                          f"Region: {ri['region']}, "
+                          f"ID: {ri['id']}, "
+                          f"Expiry: {ri['expiry_date'].strftime('%Y-%m-%d %H:%M:%S')}, "
+                          f"Type: {ri['instance_type']}, "
+                          f"AZ: {ri['availability_zone']}, "
+                          f"Count: {ri['instance_count']}\n"
+                      )
+
+                  sns_client = boto3.client('sns')
+                  sns_client.publish(
+                      TopicArn=sns_topic_arn,
+                      Subject="Reserved Instance Expiry Alert",
+                      Message=message
+                  )
+                  logger.info("Notification sent.")
+              else:
+                  logger.info("No Reserved Instances expiring within the warning period.")
+
+      Timeout: 900
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN:
+            Fn::ImportValue: !Sub "${ParentAlertStack}-TopicARN"
+
+  # EventBridge Rule to Trigger Lambda Function
+  ReservedInstanceExpiryEventRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: "ReservedInstanceExpiryMonitorSchedule"
+      ScheduleExpression: "cron(30 2 ? * * *)" # Runs daily at 2:30 AM UTC
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt ReservedInstanceExpiryLambdaFunction.Arn
+          Id: "ReservedInstanceExpiryLambdaTarget"
+
+  # Permission for EventBridge to Invoke Lambda
+  ReservedInstanceExpiryLambdaPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref ReservedInstanceExpiryLambdaFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt ReservedInstanceExpiryEventRule.Arn
