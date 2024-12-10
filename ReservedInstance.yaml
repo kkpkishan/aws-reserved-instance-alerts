@@ -6,6 +6,10 @@ Parameters:
     Description: "Optional but recommended stack name of parent alert stack based on https://github.com/kkpkishan/AWS-SNS/blob/master/alert.yaml template."
     Type: String
     Default: ''
+  WarningDays:
+    Description: "Number of days before expiration to send alerts for Reserved Instances."
+    Type: Number
+    Default: 3
 
 Resources:
   # IAM Role for Lambda
@@ -40,14 +44,16 @@ Resources:
           import boto3
           from datetime import datetime, timedelta, timezone
           import logging
+          import os
 
           logger = logging.getLogger()
           logger.setLevel(logging.INFO)
 
           def lambda_handler(event, context):
-              sns_topic_arn = context.function_name
+              sns_topic_arn = os.environ['SNS_TOPIC_ARN']
+              warning_days = int(os.environ['WARNING_DAYS'])
               current_date = datetime.now(timezone.utc)
-              warning_date = current_date + timedelta(days=3)
+              warning_date = current_date + timedelta(days=warning_days)
 
               regions = [region['RegionName'] for region in boto3.client('ec2').describe_regions()['Regions']]
 
@@ -99,11 +105,12 @@ Resources:
               else:
                   logger.info("No Reserved Instances expiring within the warning period.")
 
-      Timeout: 900
+      Timeout: 30
       Environment:
         Variables:
           SNS_TOPIC_ARN:
             Fn::ImportValue: !Sub "${ParentAlertStack}-TopicARN"
+          WARNING_DAYS: !Ref WarningDays
 
   # EventBridge Rule to Trigger Lambda Function
   ReservedInstanceExpiryEventRule:
