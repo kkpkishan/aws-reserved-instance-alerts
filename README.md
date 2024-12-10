@@ -37,15 +37,15 @@ This repository contains an AWS CloudFormation template and Lambda function to m
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/<your-github-repo-name>.git
-   cd <your-repo-name>
+   git clone https://github.com/kkpkishan/aws-reserved-instance-alerts.git
+   cd aws-reserved-instance-alerts
    ```
 
 2. Deploy the CloudFormation stack:
 
    ```bash
    aws cloudformation deploy \
-       --template-file template.yaml \
+       --template-file ReservedInstance.yaml \
        --stack-name ReservedInstanceExpiryMonitor \
        --parameter-overrides ParentAlertStack=<ParentAlertStackName>
    ```
@@ -101,4 +101,4 @@ Region: us-west-2, ID: ri-67890xyz, Expiry: 2024-12-14 11:00:00, Type: c5.xlarge
 
 ## Repository Link
 
-[GitHub Repository](https://github.com/<your-github-repo-name>) 
+[GitHub Repository](https://github.com/kkpkishan/aws-reserved-instance-alerts) 
