@@ -1,19 +1,19 @@
 # Reserved Instance Expiry Monitor
 
-This repository contains an AWS CloudFormation template and Lambda function to monitor expiring Reserved Instances across all AWS regions and send alerts via Amazon SNS. The solution is designed to help you proactively manage your Reserved Instances and avoid service interruptions or unexpected costs due to expirations.
+This repository contains an AWS CloudFormation template and Lambda function to monitor expiring Reserved Instances across all AWS regions and send alerts via Amazon SNS. The solution helps you proactively manage your Reserved Instances and avoid unexpected costs or service interruptions.
 
 ---
 
 ## How It Works
 
 1. **Cross-Region Monitoring**:
-   - The Lambda function fetches Reserved Instance (RI) details from all AWS regions.
-   - It identifies RIs that will expire within the next 3 days.
+   - The Lambda function retrieves Reserved Instance (RI) details from all AWS regions.
+   - It identifies RIs that will expire within a configurable number of days.
 
 2. **Alerts**:
    - When expiring RIs are detected, a detailed alert is sent to the Amazon SNS topic specified in the `ParentAlertStack` parameter.
    - The alert includes:
-     - Region
+     - AWS Region
      - Reserved Instance ID
      - Expiry date
      - Instance type
@@ -22,6 +22,9 @@ This repository contains an AWS CloudFormation template and Lambda function to m
 
 3. **Scheduled Execution**:
    - The function is triggered daily by an Amazon EventBridge rule at 2:30 AM UTC.
+
+4. **Configurable Warning Period**:
+   - The number of days before expiration to trigger alerts can be specified during deployment via the `WarningDays` parameter.
 
 ---
 
@@ -47,8 +50,10 @@ This repository contains an AWS CloudFormation template and Lambda function to m
    aws cloudformation deploy \
        --template-file ReservedInstance.yaml \
        --stack-name ReservedInstanceExpiryMonitor \
-       --parameter-overrides ParentAlertStack=<ParentAlertStackName>
+       --parameter-overrides ParentAlertStack=<ParentAlertStackName> WarningDays=5
    ```
+
+   Replace `<ParentAlertStackName>` with the name of your parent alert stack, and adjust `WarningDays` to your desired threshold (default is 3 days).
 
 3. Verify that the stack is created successfully.
 
@@ -56,7 +61,7 @@ This repository contains an AWS CloudFormation template and Lambda function to m
 
 ## Example Alert
 
-If Reserved Instances are found expiring within the next 3 days, you will receive an alert email like this:
+If Reserved Instances are found expiring within the warning period, you will receive an alert email like this:
 
 **Subject**: Reserved Instance Expiry Alert
 
@@ -75,6 +80,7 @@ Region: us-west-2, ID: ri-67890xyz, Expiry: 2024-12-14 11:00:00, Type: c5.xlarge
 | Name              | Description                                                                                   | Required | Default   |
 |-------------------|-----------------------------------------------------------------------------------------------|----------|-----------|
 | ParentAlertStack  | Stack name of the parent alert stack exporting the SNS topic ARN.                            | Yes      | N/A       |
+| WarningDays       | Number of days before expiration to trigger alerts.                                           | Yes       | 3         |
 
 ---
 
@@ -94,11 +100,17 @@ Region: us-west-2, ID: ri-67890xyz, Expiry: 2024-12-14 11:00:00, Type: c5.xlarge
 
 ## Customization
 
-- Modify the `warning_date` threshold in the Lambda function (`index.lambda_handler`) if you want a different lead time for alerts.
+- Modify the `WarningDays` parameter during deployment to adjust the lead time for alerts.
 - Adjust the `ScheduleExpression` in the EventBridge rule to change the frequency of monitoring.
+
+---
 
 
 
 ## Repository Link
 
-[GitHub Repository](https://github.com/kkpkishan/aws-reserved-instance-alerts) 
+[GitHub Repository](https://github.com/kkpkishan/aws-reserved-instance-alerts.git)
+
+---
+
+For questions or support, please open an issue in the GitHub repository. Happy monitoring! 🚀
